@@ -49,6 +49,9 @@
   .day.sel-verfuegbar { background: rgba(46,158,91,.16); border-color: var(--ok); }
   .day.today span { font-weight: 800; }
   .day .pin { position: absolute; top: 2px; right: 4px; font-size: 10px; }
+  .day .room { position: absolute; top: 3px; left: 0; right: 0; text-align: center; font-style: normal;
+               font-size: 9px; font-weight: 700; color: var(--pin); }
+  .day.booked { border-color: var(--pin); }
   .day.declined { opacity: .35; }
   .day.declined span { text-decoration: line-through; }
   .wk { border: 2px solid transparent; border-radius: 11px; background: transparent; color: var(--hint);
@@ -125,6 +128,9 @@ function bookedBy(d) {
   const b = (state.bookings || []).find(x => x.date === d);
   return b ? b.by : null;
 }
+function bookingOf(d) {
+  return (state.bookings || []).find(x => x.date === d) || null;
+}
 
 /* Link zur Buchungsseite – versucht, direkt den Tag zu öffnen (MRBS-Parameter) */
 function bookingLink(d) {
@@ -153,7 +159,7 @@ function renderCalendar(ms) {
   const absent = state.mode === 'abwesend';
   let html = `<p class="hint">${absent
       ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
-      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. 📌 = gebucht.
+      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. Blau umrandet mit „Raum …“ = gebucht.
       Ganze Woche verhindert? Rechts auf <b>„keine Zeit“</b> tippen.
       ${state.me.stale && state.me.answered && state.nextMonday
         ? `<br>⏰ Für die Woche ab <b>${fmt(state.nextMonday)}</b> hast du noch keinen Tag eingetragen.` : ''}</p>
@@ -189,8 +195,9 @@ function renderCalendar(ms) {
           const c = countFor(x, ms);
           const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
           const sel = mine.has(x) ? ' sel-' + state.mode : '';
-          const pin = bookedBy(x) ? '<i class="pin">📌</i>' : '';
-          html += `<button class="day ${cls}${sel}${isDeclined ? ' declined' : ''}${x === state.today ? ' today' : ''}" data-d="${x}">
+          const bk = bookingOf(x);
+          const pin = bk ? (bk.room ? `<i class="room">Raum ${esc(bk.room)}</i>` : '<i class="pin">📌</i>') : '';
+          html += `<button class="day ${cls}${sel}${bk ? ' booked' : ''}${isDeclined ? ' declined' : ''}${x === state.today ? ' today' : ''}" data-d="${x}">
                      ${pin}<span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
         }
       });
@@ -218,7 +225,7 @@ function renderBooking(ms) {
     html += '<h2>📌 Gebuchte Proben</h2><ul class="list">' + bookings.map(b => {
       const c = countFor(b.date, ms);
       return `<li class="booked"><div class="row"><div><b>${fmt(b.date)}</b>${c.yes}/${c.total}
-                <div class="who">gebucht von ${esc(b.by)}</div></div>
+                <div class="who">${b.room ? `<b>Raum ${esc(b.room)}</b> · ` : ''}gebucht von ${esc(b.by)}</div></div>
                 <button class="btn" data-unbook="${b.date}">Zurücknehmen</button></div></li>`;
     }).join('') + '</ul>';
   }
@@ -382,13 +389,35 @@ async function save() {
   }
 }
 
+/* Raum auswählen – Telegram-Popup mit bis zu 3 Buttons; Schließen = Abbrechen */
+function pickRoom(d) {
+  const rooms = (state.rooms || []).slice(0, 3);
+  if (!rooms.length) return Promise.resolve('');
+  return new Promise(res => {
+    if (tg.showPopup) {
+      tg.showPopup({
+        title: 'Raumnummer',
+        message: `Welchen Raum habt ihr am ${fmt(d)} gebucht? (Zum Abbrechen einfach schließen)`,
+        buttons: rooms.map(r => ({ id: r, type: 'default', text: 'Raum ' + r })),
+      }, id => res(id || null));
+    } else {
+      const r = window.prompt(`Raumnummer für ${fmt(d)}? (${rooms.join(' / ')})`, rooms[0]);
+      res(r && rooms.includes(r.trim()) ? r.trim() : null);
+    }
+  });
+}
+
 async function setBooking(d, booked) {
-  const ok = await ask(booked
-    ? `${fmt(d)} als gebucht markieren? Die Gruppe bekommt eine Nachricht.`
-    : `Buchung für ${fmt(d)} zurücknehmen? (Die Buchung bei Volume11 selbst bitte dort stornieren.)`);
-  if (!ok) return;
+  let room = '';
+  if (booked) {
+    room = await pickRoom(d);
+    if (room === null) return; // abgebrochen
+  } else {
+    const ok = await ask(`Buchung für ${fmt(d)} zurücknehmen? (Die Buchung bei Volume11 selbst bitte dort stornieren.)`);
+    if (!ok) return;
+  }
   try {
-    apply(await api(booked ? 'book' : 'unbook', { date: d }), true);
+    apply(await api(booked ? 'book' : 'unbook', { date: d, room }), true);
     tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
   } catch (e) {
     showError(e);
