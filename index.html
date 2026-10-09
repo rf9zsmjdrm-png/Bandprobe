@@ -57,6 +57,8 @@
   .list li.booked { border-left: 4px solid var(--pin); }
   .pending { color: var(--hint); font-size: 13px; margin-top: 10px; }
   .msg { text-align: center; color: var(--hint); margin-top: 40vh; padding: 0 20px; }
+  .status { position: fixed; top: 8px; right: 12px; background: var(--sec); color: var(--hint);
+            font-size: 12px; padding: 4px 10px; border-radius: 999px; display: none; }
   .err { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bad); color: #fff;
          padding: 10px 12px; border-radius: 10px; font-size: 14px; }
 </style>
@@ -257,21 +259,64 @@ function updateMainButton() {
   isDirty ? tg.enableClosingConfirmation() : tg.disableClosingConfirmation();
 }
 
-async function api(action, extra) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // vermeidet CORS-Preflight
-    body: JSON.stringify(Object.assign({ action, initData: tg.initData }, extra || {})),
-  });
-  const j = await res.json();
-  if (!j.ok) throw new Error(j.error);
-  return j;
+/* Anfrage mit Zeitgrenze; hängende Verbindungen werden abgebrochen und neu versucht */
+async function api(action, extra, tries) {
+  tries = tries || (action === 'load' ? 3 : 2);
+  const body = JSON.stringify(Object.assign({ action, initData: tg.initData }, extra || {}));
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    const ctrl = window.AbortController ? new AbortController() : null;
+    const timer = ctrl && setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // vermeidet CORS-Preflight
+        body,
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      const j = await res.json();
+      if (!j.ok) throw Object.assign(new Error(j.error), { fatal: true }); // Fehler vom Skript: nicht wiederholen
+      return j;
+    } catch (e) {
+      lastErr = e.name === 'AbortError' ? new Error('Zeitüberschreitung – Server antwortet nicht') : e;
+      if (e.fatal) break;
+      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastErr;
+}
+
+/* Letzten Stand lokal merken, damit die App beim nächsten Öffnen sofort etwas zeigt */
+const CACHE_KEY = 'bandprobe_state_v1';
+function cacheRead() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    return c && c.today ? c : null;
+  } catch (e) { return null; }
+}
+function cacheWrite(s) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch (e) { /* egal */ }
+}
+
+function setStatus(text) {
+  let el = document.getElementById('status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'status';
+    el.className = 'status';
+    document.body.appendChild(el);
+  }
+  el.textContent = text || '';
+  el.style.display = text ? 'block' : 'none';
 }
 
 /* keepSelection: ungespeicherte Kalender-Auswahl beim Buchen nicht verwerfen */
 function apply(res, keepSelection) {
   const keep = keepSelection && dirty() ? new Set(mine) : null;
   state = res;
+  cacheWrite(res);
   saved = new Set(res.myDays);
   mine = keep || new Set(res.myDays);
   render();
@@ -318,12 +363,37 @@ async function setBooking(d, booked) {
   tg.ready();
   tg.expand();
   tg.MainButton.onClick(save);
-  try {
-    apply(await api('load'));
-  } catch (e) {
-    app.innerHTML = `<p class="msg">Konnte nicht laden: ${esc(e.message || e)}</p>`;
-  }
+  load();
 })();
+
+async function load() {
+  // 1. Sofort den zuletzt gespeicherten Stand zeigen (falls vorhanden und von heute)
+  const cached = cacheRead();
+  const n = new Date();
+  const localToday = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+  const showCached = !state && cached && cached.today === localToday;
+  if (showCached) {
+    state = cached; saved = new Set(cached.myDays); mine = new Set(cached.myDays);
+    render();
+  }
+  setStatus(state ? 'Aktualisiere …' : '');
+  if (!state) app.innerHTML = '<p class="msg">Lade … (beim ersten Aufruf kann das ein paar Sekunden dauern)</p>';
+
+  // 2. Frische Daten holen
+  try {
+    apply(await api('load'), true);
+    setStatus('');
+  } catch (e) {
+    setStatus('');
+    if (state) {
+      showError(new Error('Konnte nicht aktualisieren – angezeigt wird der letzte Stand.'));
+    } else {
+      app.innerHTML = `<p class="msg">Konnte nicht laden: ${esc(e.message || e)}<br><br>
+        <button class="btn primary" id="retry">Erneut versuchen</button></p>`;
+      document.getElementById('retry').onclick = load;
+    }
+  }
+}
 </script>
 </body>
 </html>
