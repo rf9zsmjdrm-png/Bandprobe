@@ -105,16 +105,19 @@ function render() {
       : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können.</p>
     <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
 
+  // Nur Wochentage anzeigen, die überhaupt auswählbar sind (z. B. Mo–Fr)
+  const cols = [1, 2, 3, 4, 5, 6, 0].filter(w => state.dates.some(x => dow(x) === w));
   let d = state.today, month = -1;
   while (d <= state.end) {
+    if (!cols.includes(dow(d))) { d = addDays(d, 1); continue; }
     const m = Number(d.slice(5, 7)) - 1;
     if (m !== month) {
       if (month !== -1) html += '</div>';
       month = m;
-      html += `<div class="month">${MONTHS[m]} ${d.slice(0, 4)}</div><div class="grid">`;
-      html += ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<div class="wd">${w}</div>`).join('');
-      const offset = (dow(d) + 6) % 7;
-      html += '<div class="day empty"></div>'.repeat(offset);
+      html += `<div class="month">${MONTHS[m]} ${d.slice(0, 4)}</div>
+               <div class="grid" style="grid-template-columns:repeat(${cols.length},1fr)">`;
+      html += cols.map(w => `<div class="wd">${WD[w]}</div>`).join('');
+      html += '<div class="day empty"></div>'.repeat(cols.indexOf(dow(d)));
     }
     const num = Number(d.slice(8));
     if (!allowed.has(d)) {
