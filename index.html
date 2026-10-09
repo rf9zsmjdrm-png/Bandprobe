@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Bandprobe</title>
+<!-- Verbindung zu Google schon aufbauen, während die Seite lädt -->
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -46,6 +49,11 @@
   .day.sel-verfuegbar { background: rgba(46,158,91,.16); border-color: var(--ok); }
   .day.today span { font-weight: 800; }
   .day .pin { position: absolute; top: 2px; right: 4px; font-size: 10px; }
+  .day.declined { opacity: .35; }
+  .day.declined span { text-decoration: line-through; }
+  .wk { border: 2px solid transparent; border-radius: 11px; background: transparent; color: var(--hint);
+        font: inherit; font-size: 10px; line-height: 1.15; padding: 2px; cursor: pointer; }
+  .wk.on { background: rgba(214,69,69,.16); border-color: var(--bad); color: var(--bad); font-weight: 700; }
   h2 { font-size: 15px; margin: 22px 0 6px; }
   .list { list-style: none; margin: 0; padding: 0; }
   .list li { background: var(--sec); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
@@ -80,6 +88,8 @@ const app = document.getElementById('app');
 let state = null;
 let saved = new Set();
 let mine = new Set();
+let savedDeclined = new Set();   // Wochen (Montag) mit „keine Zeit“
+let declined = new Set();
 let tab = 'cal';
 
 const dow = d => new Date(d + 'T12:00:00Z').getUTCDay();
@@ -87,15 +97,15 @@ const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x
 const fmt = d => { const p = d.split('-'); return WD[dow(d)] + ' ' + Number(p[2]) + '.' + Number(p[1]) + '.'; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+const mondayOf = d => addDays(d, -((dow(d) + 6) % 7));
+const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
 function dirty() {
-  if (saved.size !== mine.size) return true;
-  for (const d of mine) if (!saved.has(d)) return true;
-  return false;
+  return !sameSet(saved, mine) || !sameSet(savedDeclined, declined);
 }
 
 function members() {
   return state.members.map(m => m.isMe
-    ? Object.assign({}, m, { days: [...mine], answered: m.answered || dirty() })
+    ? Object.assign({}, m, { days: [...mine], declined: [...declined], answered: m.answered || dirty() })
     : m);
 }
 
@@ -143,37 +153,52 @@ function renderCalendar(ms) {
   const absent = state.mode === 'abwesend';
   let html = `<p class="hint">${absent
       ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
-      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. 📌 = gebucht.</p>
+      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. 📌 = gebucht.
+      Ganze Woche verhindert? Rechts auf <b>„keine Zeit“</b> tippen.
+      ${state.me.stale && state.me.answered && state.nextMonday
+        ? `<br>⏰ Für die Woche ab <b>${fmt(state.nextMonday)}</b> hast du noch keinen Tag eingetragen.` : ''}</p>
     <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
 
-  // Nur Wochentage anzeigen, die überhaupt auswählbar sind (z. B. Mo–Fr)
+  // Nur Wochentage anzeigen, die überhaupt auswählbar sind (z. B. Mo–Fr); pro Woche eine Zeile + Button „keine Zeit“
   const cols = [1, 2, 3, 4, 5, 6, 0].filter(w => state.dates.some(x => dow(x) === w));
-  let d = state.today, month = -1;
-  while (d <= state.end) {
-    if (!cols.includes(dow(d))) { d = addDays(d, 1); continue; }
-    const m = Number(d.slice(5, 7)) - 1;
-    if (m !== month) {
-      if (month !== -1) html += '</div>';
-      month = m;
-      html += `<div class="month">${MONTHS[m]} ${d.slice(0, 4)}</div>
-               <div class="grid" style="grid-template-columns:repeat(${cols.length},1fr)">`;
-      html += cols.map(w => `<div class="wd">${WD[w]}</div>`).join('');
-      html += '<div class="day empty"></div>'.repeat(cols.indexOf(dow(d)));
+  const gridStyle = `grid-template-columns:repeat(${cols.length},1fr) 1.15fr`;
+  const header = cols.map(w => `<div class="wd">${WD[w]}</div>`).join('') + '<div class="wd"></div>';
+  let monday = mondayOf(state.today), first = true, open = false;
+  while (monday <= state.end) {
+    const week = cols.map(w => addDays(monday, (w + 6) % 7));
+    const inWeek = week.filter(x => allowed.has(x) && x >= state.today);
+    if (inWeek.length) {
+      // Monatsüberschrift: am Anfang und wenn in dieser Woche ein neuer Monat beginnt
+      const firstOfMonth = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(monday, i)).find(x => x.endsWith('-01'));
+      const head = first ? (firstOfMonth && firstOfMonth > inWeek[0] ? inWeek[0] : (firstOfMonth || inWeek[0])) : firstOfMonth;
+      if (head) {
+        if (open) html += '</div>';
+        const m = Number(head.slice(5, 7)) - 1;
+        html += `<div class="month">${MONTHS[m]} ${head.slice(0, 4)}</div><div class="grid" style="${gridStyle}">${header}`;
+        open = true;
+      }
+      first = false;
+      const isDeclined = declined.has(monday);
+      week.forEach(x => {
+        const num = Number(x.slice(8));
+        if (x < state.today || x > state.end) {
+          html += '<div class="day empty"></div>';
+        } else if (!allowed.has(x)) {
+          html += `<div class="day off"><span>${num}</span></div>`;
+        } else {
+          const c = countFor(x, ms);
+          const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
+          const sel = mine.has(x) ? ' sel-' + state.mode : '';
+          const pin = bookedBy(x) ? '<i class="pin">📌</i>' : '';
+          html += `<button class="day ${cls}${sel}${isDeclined ? ' declined' : ''}${x === state.today ? ' today' : ''}" data-d="${x}">
+                     ${pin}<span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
+        }
+      });
+      html += `<button class="wk${isDeclined ? ' on' : ''}" data-week="${monday}">${isDeclined ? '🚫<br>keine Zeit' : 'keine<br>Zeit'}</button>`;
     }
-    const num = Number(d.slice(8));
-    if (!allowed.has(d)) {
-      html += `<div class="day off"><span>${num}</span></div>`;
-    } else {
-      const c = countFor(d, ms);
-      const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
-      const sel = mine.has(d) ? ' sel-' + state.mode : '';
-      const pin = bookedBy(d) ? '<i class="pin">📌</i>' : '';
-      html += `<button class="day ${cls}${sel}${d === state.today ? ' today' : ''}" data-d="${d}">
-                 ${pin}<span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
-    }
-    d = addDays(d, 1);
+    monday = addDays(monday, 7);
   }
-  html += '</div>';
+  if (open) html += '</div>';
 
   const pending = ms.filter(m => !m.answered);
   if (pending.length) {
@@ -233,12 +258,24 @@ function render() {
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
   app.querySelectorAll('button.day').forEach(b => b.onclick = () => {
     const x = b.dataset.d;
+    if (declined.has(mondayOf(x))) declined.delete(mondayOf(x)); // Tag antippen hebt „keine Zeit“ auf
     mine.has(x) ? mine.delete(x) : mine.add(x);
     tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
     render();
   });
   const all = document.getElementById('all');
-  if (all) all.onclick = () => { mine = new Set(state.dates); render(); };
+  if (all) all.onclick = () => { mine = new Set(state.dates.filter(x => !declined.has(mondayOf(x)))); render(); };
+  app.querySelectorAll('[data-week]').forEach(b => b.onclick = () => {
+    const w = b.dataset.week;
+    if (declined.has(w)) {
+      declined.delete(w);
+    } else {
+      declined.add(w);
+      [...mine].forEach(x => { if (mondayOf(x) === w) mine.delete(x); }); // Tage dieser Woche abwählen
+    }
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+    render();
+  });
   const none = document.getElementById('none');
   if (none) none.onclick = () => { mine = new Set(); render(); };
   app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openBooking(b.dataset.open));
@@ -249,7 +286,7 @@ function render() {
 
 function updateMainButton() {
   const isDirty = dirty();
-  const needsConfirm = !state.me.answered || state.me.stale;
+  const needsConfirm = !state.me.answered;
   if (isDirty || needsConfirm) {
     tg.MainButton.setText(isDirty ? 'Speichern' : 'Passt so – bestätigen');
     tg.MainButton.show();
@@ -266,7 +303,8 @@ async function api(action, extra, tries) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     const ctrl = window.AbortController ? new AbortController() : null;
-    const timer = ctrl && setTimeout(() => ctrl.abort(), 20000);
+    // Laden: nach 5 s neu versuchen. Speichern/Buchen: etwas mehr Geduld, damit nichts doppelt oder halb ankommt
+    const timer = ctrl && setTimeout(() => ctrl.abort(), action === 'load' ? 5000 : 15000);
     try {
       const res = await fetch(API_URL, {
         method: 'POST',
@@ -314,11 +352,13 @@ function setStatus(text) {
 
 /* keepSelection: ungespeicherte Kalender-Auswahl beim Buchen nicht verwerfen */
 function apply(res, keepSelection) {
-  const keep = keepSelection && dirty() ? new Set(mine) : null;
+  const keep = keepSelection && dirty() ? { mine: new Set(mine), declined: new Set(declined) } : null;
   state = res;
   cacheWrite(res);
   saved = new Set(res.myDays);
-  mine = keep || new Set(res.myDays);
+  savedDeclined = new Set(res.myDeclined || []);
+  mine = keep ? keep.mine : new Set(res.myDays);
+  declined = keep ? keep.declined : new Set(res.myDeclined || []);
   render();
 }
 
@@ -333,7 +373,7 @@ function showError(e) {
 async function save() {
   tg.MainButton.showProgress();
   try {
-    apply(await api('save', { days: [...mine] }));
+    apply(await api('save', { days: [...mine], declined: [...declined] }));
     tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
   } catch (e) {
     showError(e);
@@ -374,6 +414,7 @@ async function load() {
   const showCached = !state && cached && cached.today === localToday;
   if (showCached) {
     state = cached; saved = new Set(cached.myDays); mine = new Set(cached.myDays);
+    savedDeclined = new Set(cached.myDeclined || []); declined = new Set(cached.myDeclined || []);
     render();
   }
   setStatus(state ? 'Aktualisiere …' : '');
