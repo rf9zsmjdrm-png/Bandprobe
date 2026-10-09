@@ -12,22 +12,30 @@
     --hint: var(--tg-theme-hint-color, #8a8a8e);
     --sec: var(--tg-theme-secondary-bg-color, #f1f1f4);
     --accent: var(--tg-theme-button-color, #2a7ae2);
-    --ok: #2e9e5b; --mid: #d99a1e; --bad: #d64545;
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --ok: #2e9e5b; --mid: #d99a1e; --bad: #d64545; --pin: #3b82f6;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 12px 12px 90px; background: var(--bg); color: var(--text);
          font: 15px/1.4 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
   h1 { font-size: 19px; margin: 2px 0 4px; }
   .hint { color: var(--hint); font-size: 13px; margin: 0 0 10px; }
+  .tabs { display: flex; background: var(--sec); border-radius: 12px; padding: 3px; margin: 10px 0 6px; }
+  .tabs button { flex: 1; border: 0; background: transparent; color: var(--hint); font: inherit; font-weight: 600;
+                 padding: 8px; border-radius: 10px; cursor: pointer; }
+  .tabs button.active { background: var(--bg); color: var(--text); }
   .tools { display: flex; gap: 8px; margin: 8px 0 4px; }
-  .tools button { flex: 1; border: 0; border-radius: 10px; padding: 8px; background: var(--sec);
-                  color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .tools button, .btn { border: 0; border-radius: 10px; padding: 8px 10px; background: var(--sec);
+                        color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .tools button { flex: 1; }
+  .btn.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .btn.wide { width: 100%; padding: 11px; font-size: 15px; margin: 6px 0 4px; }
   .month { font-weight: 650; margin: 18px 0 6px; }
   .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
   .wd { font-size: 11px; color: var(--hint); text-align: center; padding-bottom: 2px; }
   .day { aspect-ratio: 1; border-radius: 11px; background: var(--sec); border: 2px solid transparent;
          display: flex; flex-direction: column; align-items: center; justify-content: center;
-         color: var(--text); font: inherit; font-size: 15px; padding: 0; cursor: pointer;
+         color: var(--text); font: inherit; font-size: 15px; padding: 0; cursor: pointer; position: relative;
          -webkit-tap-highlight-color: transparent; user-select: none; }
   .day small { font-size: 10px; font-weight: 700; margin-top: 1px; }
   .day.off { background: transparent; opacity: .3; cursor: default; }
@@ -37,11 +45,16 @@
   .day.sel-abwesend span { text-decoration: line-through; }
   .day.sel-verfuegbar { background: rgba(46,158,91,.16); border-color: var(--ok); }
   .day.today span { font-weight: 800; }
+  .day .pin { position: absolute; top: 2px; right: 4px; font-size: 10px; }
   h2 { font-size: 15px; margin: 22px 0 6px; }
-  .best { list-style: none; margin: 0; padding: 0; }
-  .best li { background: var(--sec); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
-  .best b { margin-right: 6px; }
-  .best .who { color: var(--hint); font-size: 12px; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { background: var(--sec); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
+  .list b { margin-right: 6px; }
+  .list .who { color: var(--hint); font-size: 12px; }
+  .list .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .list .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .list .actions .btn { flex: 1; }
+  .list li.booked { border-left: 4px solid var(--pin); }
   .pending { color: var(--hint); font-size: 13px; margin-top: 10px; }
   .msg { text-align: center; color: var(--hint); margin-top: 40vh; padding: 0 20px; }
   .err { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bad); color: #fff;
@@ -65,6 +78,7 @@ const app = document.getElementById('app');
 let state = null;
 let saved = new Set();
 let mine = new Set();
+let tab = 'cal';
 
 const dow = d => new Date(d + 'T12:00:00Z').getUTCDay();
 const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -95,14 +109,39 @@ function countFor(d, ms) {
   return { yes: ms.length - missing.length, total: ms.length, missing };
 }
 
-function render() {
-  const ms = members();
+function bookedBy(d) {
+  const b = (state.bookings || []).find(x => x.date === d);
+  return b ? b.by : null;
+}
+
+/* Link zur Buchungsseite – versucht, direkt den Tag zu öffnen (MRBS-Parameter) */
+function bookingLink(d) {
+  const base = state.bookingUrl;
+  if (!d) return base;
+  const [y, m, day] = d.split('-');
+  return base + (base.includes('?') ? '&' : '?') +
+    `view=day&page_date=${d}&year=${y}&month=${Number(m)}&day=${Number(day)}`;
+}
+
+function openBooking(d) {
+  const url = bookingLink(d);
+  if (tg.openLink) tg.openLink(url); else window.open(url, '_blank');
+}
+
+function ask(text) {
+  return new Promise(res => {
+    if (tg.showConfirm) tg.showConfirm(text, ok => res(!!ok));
+    else res(window.confirm(text));
+  });
+}
+
+/* ───────── Ansicht: Verfügbarkeit ───────── */
+function renderCalendar(ms) {
   const allowed = new Set(state.dates);
   const absent = state.mode === 'abwesend';
-  let html = `<h1>Bandprobe 🎸</h1>
-    <p class="hint">Hallo ${esc(state.me.name)}! ${absent
+  let html = `<p class="hint">${absent
       ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
-      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können.</p>
+      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. 📌 = gebucht.</p>
     <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
 
   // Nur Wochentage anzeigen, die überhaupt auswählbar sind (z. B. Mo–Fr)
@@ -126,39 +165,83 @@ function render() {
       const c = countFor(d, ms);
       const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
       const sel = mine.has(d) ? ' sel-' + state.mode : '';
+      const pin = bookedBy(d) ? '<i class="pin">📌</i>' : '';
       html += `<button class="day ${cls}${sel}${d === state.today ? ' today' : ''}" data-d="${d}">
-                 <span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
+                 ${pin}<span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
     }
     d = addDays(d, 1);
   }
   html += '</div>';
 
-  const best = state.dates
-    .map(x => Object.assign({ d: x }, countFor(x, ms)))
-    .filter(x => x.yes > 0)
-    .sort((a, b) => b.yes - a.yes || a.d.localeCompare(b.d))
-    .slice(0, 6);
-  if (best.length) {
-    html += '<h2>Beste Termine</h2><ul class="best">' + best.map(x =>
-      `<li><b>${fmt(x.d)}</b>${x.yes}/${x.total} ${x.yes === x.total ? '✅' : ''}
-        ${x.missing.length ? `<div class="who">fehlt: ${x.missing.map(m => esc(m.name) + (m.answered ? '' : '?')).join(', ')}</div>` : ''}</li>`
-    ).join('') + '</ul>';
-  }
-
   const pending = ms.filter(m => !m.answered);
   if (pending.length) {
     html += `<p class="pending">Noch nichts eingetragen: ${pending.map(m => esc(m.name)).join(', ')}</p>`;
   }
+  return html;
+}
 
+/* ───────── Ansicht: Buchen ───────── */
+function renderBooking(ms) {
+  let html = `<p class="hint">Hier seht ihr die besten Termine. Über „Buchen“ öffnet sich die Seite von Volume11
+    (dort ganz normal einloggen und buchen). Danach den Termin hier als gebucht markieren – dann bekommt die Gruppe Bescheid.</p>
+    <button class="btn primary wide" data-open="">Buchungsseite öffnen ↗</button>`;
+
+  const bookings = state.bookings || [];
+  if (bookings.length) {
+    html += '<h2>📌 Gebuchte Proben</h2><ul class="list">' + bookings.map(b => {
+      const c = countFor(b.date, ms);
+      return `<li class="booked"><div class="row"><div><b>${fmt(b.date)}</b>${c.yes}/${c.total}
+                <div class="who">gebucht von ${esc(b.by)}</div></div>
+                <button class="btn" data-unbook="${b.date}">Zurücknehmen</button></div></li>`;
+    }).join('') + '</ul>';
+  }
+
+  const candidates = state.dates
+    .filter(d => !bookedBy(d))
+    .map(d => Object.assign({ d }, countFor(d, ms)))
+    .filter(x => x.yes > 0)
+    .sort((a, b) => b.yes - a.yes || a.d.localeCompare(b.d))
+    .slice(0, 8);
+
+  html += '<h2>Beste Termine</h2>';
+  if (!candidates.length) {
+    html += '<p class="pending">Noch keine Termine – erst müssen ein paar Leute ihre Tage eintragen.</p>';
+  } else {
+    html += '<ul class="list">' + candidates.map(x => `
+      <li><div><b>${fmt(x.d)}</b>${x.yes}/${x.total} ${x.yes === x.total ? '✅' : ''}</div>
+        ${x.missing.length ? `<div class="who">fehlt: ${x.missing.map(m => esc(m.name) + (m.answered ? '' : '?')).join(', ')}</div>` : ''}
+        <div class="actions">
+          <button class="btn" data-open="${x.d}">Buchen ↗</button>
+          <button class="btn primary" data-book="${x.d}">Als gebucht markieren</button>
+        </div></li>`).join('') + '</ul>';
+  }
+  return html;
+}
+
+function render() {
+  const ms = members();
+  let html = `<h1>Bandprobe 🎸</h1>
+    <div class="tabs">
+      <button data-tab="cal" class="${tab === 'cal' ? 'active' : ''}">Verfügbarkeit</button>
+      <button data-tab="book" class="${tab === 'book' ? 'active' : ''}">Buchen</button>
+    </div>`;
+  html += tab === 'cal' ? renderCalendar(ms) : renderBooking(ms);
   app.innerHTML = html;
-  app.querySelectorAll('button.day').forEach(b => b.addEventListener('click', () => {
+
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  app.querySelectorAll('button.day').forEach(b => b.onclick = () => {
     const x = b.dataset.d;
     mine.has(x) ? mine.delete(x) : mine.add(x);
     tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
     render();
-  }));
-  document.getElementById('all').onclick = () => { mine = new Set(state.dates); render(); };
-  document.getElementById('none').onclick = () => { mine = new Set(); render(); };
+  });
+  const all = document.getElementById('all');
+  if (all) all.onclick = () => { mine = new Set(state.dates); render(); };
+  const none = document.getElementById('none');
+  if (none) none.onclick = () => { mine = new Set(); render(); };
+  app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openBooking(b.dataset.open));
+  app.querySelectorAll('[data-book]').forEach(b => b.onclick = () => setBooking(b.dataset.book, true));
+  app.querySelectorAll('[data-unbook]').forEach(b => b.onclick = () => setBooking(b.dataset.unbook, false));
   updateMainButton();
 }
 
@@ -185,10 +268,12 @@ async function api(action, extra) {
   return j;
 }
 
-function apply(res) {
+/* keepSelection: ungespeicherte Kalender-Auswahl beim Buchen nicht verwerfen */
+function apply(res, keepSelection) {
+  const keep = keepSelection && dirty() ? new Set(mine) : null;
   state = res;
   saved = new Set(res.myDays);
-  mine = new Set(res.myDays);
+  mine = keep || new Set(res.myDays);
   render();
 }
 
@@ -209,6 +294,19 @@ async function save() {
     showError(e);
   } finally {
     tg.MainButton.hideProgress();
+  }
+}
+
+async function setBooking(d, booked) {
+  const ok = await ask(booked
+    ? `${fmt(d)} als gebucht markieren? Die Gruppe bekommt eine Nachricht.`
+    : `Buchung für ${fmt(d)} zurücknehmen? (Die Buchung bei Volume11 selbst bitte dort stornieren.)`);
+  if (!ok) return;
+  try {
+    apply(await api(booked ? 'book' : 'unbook', { date: d }), true);
+    tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+  } catch (e) {
+    showError(e);
   }
 }
 
