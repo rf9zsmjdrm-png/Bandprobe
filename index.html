@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Bandprobe</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8a8e);
+    --sec: var(--tg-theme-secondary-bg-color, #f1f1f4);
+    --accent: var(--tg-theme-button-color, #2a7ae2);
+    --ok: #2e9e5b; --mid: #d99a1e; --bad: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px 12px 90px; background: var(--bg); color: var(--text);
+         font: 15px/1.4 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 19px; margin: 2px 0 4px; }
+  .hint { color: var(--hint); font-size: 13px; margin: 0 0 10px; }
+  .tools { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .tools button { flex: 1; border: 0; border-radius: 10px; padding: 8px; background: var(--sec);
+                  color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .month { font-weight: 650; margin: 18px 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .wd { font-size: 11px; color: var(--hint); text-align: center; padding-bottom: 2px; }
+  .day { aspect-ratio: 1; border-radius: 11px; background: var(--sec); border: 2px solid transparent;
+         display: flex; flex-direction: column; align-items: center; justify-content: center;
+         color: var(--text); font: inherit; font-size: 15px; padding: 0; cursor: pointer;
+         -webkit-tap-highlight-color: transparent; user-select: none; }
+  .day small { font-size: 10px; font-weight: 700; margin-top: 1px; }
+  .day.off { background: transparent; opacity: .3; cursor: default; }
+  .day.empty { visibility: hidden; }
+  .day.c-ok small { color: var(--ok); } .day.c-mid small { color: var(--mid); } .day.c-bad small { color: var(--bad); }
+  .day.sel-abwesend { background: rgba(214,69,69,.16); border-color: var(--bad); }
+  .day.sel-abwesend span { text-decoration: line-through; }
+  .day.sel-verfuegbar { background: rgba(46,158,91,.16); border-color: var(--ok); }
+  .day.today span { font-weight: 800; }
+  h2 { font-size: 15px; margin: 22px 0 6px; }
+  .best { list-style: none; margin: 0; padding: 0; }
+  .best li { background: var(--sec); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+  .best b { margin-right: 6px; }
+  .best .who { color: var(--hint); font-size: 12px; }
+  .pending { color: var(--hint); font-size: 13px; margin-top: 10px; }
+  .msg { text-align: center; color: var(--hint); margin-top: 40vh; padding: 0 20px; }
+  .err { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bad); color: #fff;
+         padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="app"><p class="msg">Lade …</p></div>
+
+<script>
+/* ▼▼▼ Hier die URL der Apps-Script-Web-App eintragen ▼▼▼ */
+const API_URL = https://script.google.com/macros/s/AKfycbyXDOl19vxNTKjTvsaEbLTcxBreg7si84Nyxb_WpmWts7rdHKfFp1MIL2kOepTSwc-s/exec;
+/* ▲▲▲ ─────────────────────────────────────────────── ▲▲▲ */
+
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli',
+                'August', 'September', 'Oktober', 'November', 'Dezember'];
+const tg = window.Telegram && window.Telegram.WebApp;
+const app = document.getElementById('app');
+
+let state = null;
+let saved = new Set();
+let mine = new Set();
+
+const dow = d => new Date(d + 'T12:00:00Z').getUTCDay();
+const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const fmt = d => { const p = d.split('-'); return WD[dow(d)] + ' ' + Number(p[2]) + '.' + Number(p[1]) + '.'; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function dirty() {
+  if (saved.size !== mine.size) return true;
+  for (const d of mine) if (!saved.has(d)) return true;
+  return false;
+}
+
+function members() {
+  return state.members.map(m => m.isMe
+    ? Object.assign({}, m, { days: [...mine], answered: m.answered || dirty() })
+    : m);
+}
+
+/* true = kann, false = kann nicht, null = unbekannt */
+function can(m, d) {
+  if (!m.answered) return null;
+  const marked = m.days.includes(d);
+  return state.mode === 'abwesend' ? !marked : marked;
+}
+
+function countFor(d, ms) {
+  const missing = ms.filter(m => can(m, d) !== true);
+  return { yes: ms.length - missing.length, total: ms.length, missing };
+}
+
+function render() {
+  const ms = members();
+  const allowed = new Set(state.dates);
+  const absent = state.mode === 'abwesend';
+  let html = `<h1>Bandprobe 🎸</h1>
+    <p class="hint">Hallo ${esc(state.me.name)}! ${absent
+      ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
+      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können.</p>
+    <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
+
+  let d = state.today, month = -1;
+  while (d <= state.end) {
+    const m = Number(d.slice(5, 7)) - 1;
+    if (m !== month) {
+      if (month !== -1) html += '</div>';
+      month = m;
+      html += `<div class="month">${MONTHS[m]} ${d.slice(0, 4)}</div><div class="grid">`;
+      html += ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<div class="wd">${w}</div>`).join('');
+      const offset = (dow(d) + 6) % 7;
+      html += '<div class="day empty"></div>'.repeat(offset);
+    }
+    const num = Number(d.slice(8));
+    if (!allowed.has(d)) {
+      html += `<div class="day off"><span>${num}</span></div>`;
+    } else {
+      const c = countFor(d, ms);
+      const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
+      const sel = mine.has(d) ? ' sel-' + state.mode : '';
+      html += `<button class="day ${cls}${sel}${d === state.today ? ' today' : ''}" data-d="${d}">
+                 <span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
+    }
+    d = addDays(d, 1);
+  }
+  html += '</div>';
+
+  const best = state.dates
+    .map(x => Object.assign({ d: x }, countFor(x, ms)))
+    .filter(x => x.yes > 0)
+    .sort((a, b) => b.yes - a.yes || a.d.localeCompare(b.d))
+    .slice(0, 6);
+  if (best.length) {
+    html += '<h2>Beste Termine</h2><ul class="best">' + best.map(x =>
+      `<li><b>${fmt(x.d)}</b>${x.yes}/${x.total} ${x.yes === x.total ? '✅' : ''}
+        ${x.missing.length ? `<div class="who">fehlt: ${x.missing.map(m => esc(m.name) + (m.answered ? '' : '?')).join(', ')}</div>` : ''}</li>`
+    ).join('') + '</ul>';
+  }
+
+  const pending = ms.filter(m => !m.answered);
+  if (pending.length) {
+    html += `<p class="pending">Noch nichts eingetragen: ${pending.map(m => esc(m.name)).join(', ')}</p>`;
+  }
+
+  app.innerHTML = html;
+  app.querySelectorAll('button.day').forEach(b => b.addEventListener('click', () => {
+    const x = b.dataset.d;
+    mine.has(x) ? mine.delete(x) : mine.add(x);
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+    render();
+  }));
+  document.getElementById('all').onclick = () => { mine = new Set(state.dates); render(); };
+  document.getElementById('none').onclick = () => { mine = new Set(); render(); };
+  updateMainButton();
+}
+
+function updateMainButton() {
+  const isDirty = dirty();
+  const needsConfirm = !state.me.answered || state.me.stale;
+  if (isDirty || needsConfirm) {
+    tg.MainButton.setText(isDirty ? 'Speichern' : 'Passt so – bestätigen');
+    tg.MainButton.show();
+  } else {
+    tg.MainButton.hide();
+  }
+  isDirty ? tg.enableClosingConfirmation() : tg.disableClosingConfirmation();
+}
+
+async function api(action, extra) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // vermeidet CORS-Preflight
+    body: JSON.stringify(Object.assign({ action, initData: tg.initData }, extra || {})),
+  });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error);
+  return j;
+}
+
+function apply(res) {
+  state = res;
+  saved = new Set(res.myDays);
+  mine = new Set(res.myDays);
+  render();
+}
+
+function showError(e) {
+  const el = document.createElement('div');
+  el.className = 'err';
+  el.textContent = 'Fehler: ' + (e.message || e);
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function save() {
+  tg.MainButton.showProgress();
+  try {
+    apply(await api('save', { days: [...mine] }));
+    tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+  } catch (e) {
+    showError(e);
+  } finally {
+    tg.MainButton.hideProgress();
+  }
+}
+
+(async function init() {
+  if (!tg || !tg.initData) {
+    app.innerHTML = '<p class="msg">Bitte öffne diese Seite über den Button in eurer Telegram-Gruppe.</p>';
+    return;
+  }
+  tg.ready();
+  tg.expand();
+  tg.MainButton.onClick(save);
+  try {
+    apply(await api('load'));
+  } catch (e) {
+    app.innerHTML = `<p class="msg">Konnte nicht laden: ${esc(e.message || e)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>
