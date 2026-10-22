@@ -73,6 +73,15 @@
             font-size: 12px; padding: 4px 10px; border-radius: 999px; display: none; }
   .err { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bad); color: #fff;
          padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center;
+              justify-content: center; padding: 16px; z-index: 50; }
+  .sheet { background: var(--bg); color: var(--text); border-radius: 14px; width: 100%; max-width: 340px;
+           padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+  .sheet h3 { margin: 0 0 4px; font-size: 17px; text-align: center; }
+  .sheet p { margin: 0 0 12px; color: var(--hint); font-size: 13px; text-align: center; }
+  .sheet button { display: block; width: 100%; border: 0; border-radius: 10px; padding: 11px; margin-top: 8px;
+                  font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-text); }
+  .sheet button.cancel { background: var(--sec); color: var(--text); font-weight: 400; }
 </style>
 </head>
 <body>
@@ -395,19 +404,31 @@ async function save() {
 
 /* Raum auswählen – Telegram-Popup mit bis zu 3 Buttons; Schließen = Abbrechen */
 function pickRoom(d) {
-  const rooms = (state.rooms || []).slice(0, 3);
+  const rooms = state.rooms || [];
   if (!rooms.length) return Promise.resolve('');
   return new Promise(res => {
-    if (tg.showPopup) {
-      tg.showPopup({
-        title: 'Raumnummer',
-        message: `Welchen Raum habt ihr am ${fmt(d)} gebucht? (Zum Abbrechen einfach schließen)`,
-        buttons: rooms.map(r => ({ id: r, type: 'default', text: 'Raum ' + r })),
-      }, id => res(id || null));
-    } else {
-      const r = window.prompt(`Raumnummer für ${fmt(d)}? (${rooms.join(' / ')})`, rooms[0]);
-      res(r && rooms.includes(r.trim()) ? r.trim() : null);
-    }
+    const bg = document.createElement('div');
+    bg.className = 'sheet-bg';
+    bg.innerHTML = `<div class="sheet" role="dialog">
+        <h3>Raumnummer</h3>
+        <p>Welchen Raum habt ihr am ${fmt(d)} gebucht?</p>
+        ${rooms.map(r => `<button data-room="${esc(r)}">Raum ${esc(r)}</button>`).join('')}
+        <button class="cancel" data-room="">Abbrechen</button>
+      </div>`;
+    const done = r => {
+      document.removeEventListener('keydown', onKey);
+      bg.remove();
+      res(r);
+    };
+    const onKey = e => { if (e.key === 'Escape') done(null); };
+    bg.addEventListener('click', e => {
+      if (e.target === bg) return done(null); // Klick daneben = Abbrechen
+      const b = e.target.closest('button');
+      if (b) done(b.dataset.room || null);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(bg);
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
   });
 }
 
