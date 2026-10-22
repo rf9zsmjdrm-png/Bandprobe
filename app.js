@@ -287,13 +287,13 @@ function setBooked_(user, date, booked, room) {
       const row = sh.getLastRow() + 1;
       sh.getRange(row, 1, 1, 4).setNumberFormats([['@', '@', 'dd.MM.yyyy HH:mm', '@']])
         .setValues([[date, user.name, new Date(), room]]);
-      note = 'Für den ' + day_(date) + ' ist ' + (room ? roomLabel_(room) : 'ein Raum') + ' gebucht.';
+      note = 'Für ' + day_(date) + ' ist ' + (room ? roomLabel_(room) : 'ein Raum') + ' gebucht.';
     } else if (booked && existing && room && existing.room !== room) {
       sh.getRange(existing.row, 4).setNumberFormat('@').setValue(room);
-      note = 'Für den ' + day_(date) + ' ist jetzt ' + roomLabel_(room) + ' gebucht.';
+      note = 'Für ' + day_(date) + ' ist jetzt ' + roomLabel_(room) + ' gebucht.';
     } else if (!booked && existing) {
       sh.deleteRow(existing.row);
-      note = 'Die Buchung für den ' + day_(date) + ' wurde zurückgenommen.';
+      note = 'Die Buchung für ' + day_(date) + ' wurde zurückgenommen.';
     }
     SpreadsheetApp.flush();
     invalidate_();
@@ -333,10 +333,11 @@ function dow_(d) {
   return new Date(d + 'T12:00:00Z').getUTCDay();
 }
 
-/** '2026-10-28' → '28.10.' */
+/** '2026-10-28' → 'Mittwoch, den 28.10.' */
 function day_(d) {
   const p = d.split('-');
-  return Number(p[2]) + '.' + Number(p[1]) + '.';
+  const names = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  return names[dow_(d)] + ', den ' + Number(p[2]) + '.' + Number(p[1]) + '.';
 }
 
 function fmt_(d) {
