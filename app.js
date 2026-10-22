@@ -287,15 +287,13 @@ function setBooked_(user, date, booked, room) {
       const row = sh.getLastRow() + 1;
       sh.getRange(row, 1, 1, 4).setNumberFormats([['@', '@', 'dd.MM.yyyy HH:mm', '@']])
         .setValues([[date, user.name, new Date(), room]]);
-      note = '📌 Probe gebucht: ' + fmt_(date) + (room ? ' – ' + roomLabel_(room) : '') +
-        ' (eingetragen von ' + user.name + ')';
+      note = 'Für den ' + day_(date) + ' ist ' + (room ? roomLabel_(room) : 'ein Raum') + ' gebucht.';
     } else if (booked && existing && room && existing.room !== room) {
       sh.getRange(existing.row, 4).setNumberFormat('@').setValue(room);
-      note = '🔁 Raum geändert: ' + fmt_(date) + ' – jetzt ' + roomLabel_(room) + ' (von ' + user.name + ')';
+      note = 'Für den ' + day_(date) + ' ist jetzt ' + roomLabel_(room) + ' gebucht.';
     } else if (!booked && existing) {
       sh.deleteRow(existing.row);
-      note = '↩️ Buchung zurückgenommen: ' + fmt_(date) + (existing.room ? ' – ' + roomLabel_(existing.room) : '') +
-        ' (von ' + user.name + ')';
+      note = 'Die Buchung für den ' + day_(date) + ' wurde zurückgenommen.';
     }
     SpreadsheetApp.flush();
     invalidate_();
@@ -333,6 +331,12 @@ function addDays_(d, n) {
 
 function dow_(d) {
   return new Date(d + 'T12:00:00Z').getUTCDay();
+}
+
+/** '2026-10-28' → '28.10.' */
+function day_(d) {
+  const p = d.split('-');
+  return Number(p[2]) + '.' + Number(p[1]) + '.';
 }
 
 function fmt_(d) {
