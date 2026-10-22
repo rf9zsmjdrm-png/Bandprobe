@@ -39,7 +39,8 @@
   .day { aspect-ratio: 1; border-radius: 11px; background: var(--sec); border: 2px solid transparent;
          display: flex; flex-direction: column; align-items: center; justify-content: center;
          color: var(--text); font: inherit; font-size: 15px; padding: 0; cursor: pointer; position: relative;
-         -webkit-tap-highlight-color: transparent; user-select: none; }
+         -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+         -webkit-touch-callout: none; touch-action: manipulation; }
   .day small { font-size: 10px; font-weight: 700; margin-top: 1px; }
   .day.off { background: transparent; opacity: .3; cursor: default; }
   .day.empty { visibility: hidden; }
@@ -161,6 +162,7 @@ function renderCalendar(ms) {
       ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
       : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. Blau umrandet mit „Raum …“ = gebucht.
       Ganze Woche verhindert? Rechts auf <b>„keine Zeit“</b> tippen.
+      Tag <b>gedrückt halten</b> (am PC: Rechtsklick) = als gebucht markieren.
       ${state.me.stale && state.me.answered && state.nextMonday
         ? `<br>⏰ Für die Woche ab <b>${fmt(state.nextMonday)}</b> hast du noch keinen Tag eingetragen.` : ''}</p>
     <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
@@ -263,7 +265,9 @@ function render() {
   app.innerHTML = html;
 
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  app.querySelectorAll('button.day').forEach(b => attachHold(b, () => dayMenu(b.dataset.d)));
   app.querySelectorAll('button.day').forEach(b => b.onclick = () => {
+    if (Date.now() < suppressUntil) return; // war ein langer Druck / Rechtsklick, kein Antippen
     const x = b.dataset.d;
     if (declined.has(mondayOf(x))) declined.delete(mondayOf(x)); // Tag antippen hebt „keine Zeit“ auf
     mine.has(x) ? mine.delete(x) : mine.add(x);
@@ -407,20 +411,87 @@ function pickRoom(d) {
   });
 }
 
-async function setBooking(d, booked) {
+async function setBooking(d, booked, confirmed) {
   let room = '';
   if (booked) {
     room = await pickRoom(d);
     if (room === null) return; // abgebrochen
-  } else {
+  } else if (!confirmed) {
     const ok = await ask(`Buchung für ${fmt(d)} zurücknehmen? (Die Buchung bei Volume11 selbst bitte dort stornieren.)`);
     if (!ok) return;
   }
+  setStatus('Speichere …');
   try {
     apply(await api(booked ? 'book' : 'unbook', { date: d, room }), true);
     tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
   } catch (e) {
     showError(e);
+  } finally {
+    setStatus('');
+  }
+}
+
+/* ───────── Gedrückt halten / Rechtsklick auf einen Tag ───────── */
+let suppressUntil = 0;   // bis wann ein „click“ ignoriert wird (nach langem Druck)
+let menuBusy = false;
+const releaseSoon = () => { suppressUntil = Math.min(suppressUntil, Date.now() + 400); };
+document.addEventListener('pointerup', releaseSoon, true);
+document.addEventListener('pointercancel', releaseSoon, true);
+
+function attachHold(el, fn) {
+  let timer = null, sx = 0, sy = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; cancel();
+    timer = setTimeout(() => { timer = null; suppressUntil = Infinity; fn(); }, 500);
+  });
+  el.addEventListener('pointermove', e => {
+    if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) cancel(); // Scrollen ist kein Halten
+  });
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('contextmenu', e => { // Rechtsklick (und Android-Langdruck)
+    e.preventDefault();
+    cancel();
+    suppressUntil = Date.now() + 600;
+    fn();
+  });
+}
+
+function popup(params) {
+  return new Promise(res => {
+    try { tg.showPopup(params, id => res(id || null)); } catch (e) { res(null); }
+  });
+}
+
+async function dayMenu(d) {
+  if (menuBusy || !state) return;
+  menuBusy = true;
+  tg.HapticFeedback && tg.HapticFeedback.impactOccurred('medium');
+  try {
+    const bk = bookingOf(d);
+    if (!bk) { await setBooking(d, true); return; }
+    let choice;
+    if (tg.showPopup) {
+      choice = await popup({
+        title: `${fmt(d)} ist gebucht`,
+        message: `${bk.room ? 'Raum ' + bk.room + ' · ' : ''}eingetragen von ${bk.by}`,
+        buttons: [
+          { id: 'room', type: 'default', text: 'Raum ändern' },
+          { id: 'unbook', type: 'destructive', text: 'Zurücknehmen' },
+          { type: 'cancel' },
+        ],
+      });
+    } else {
+      choice = window.confirm(`${fmt(d)} ist gebucht. Buchung zurücknehmen?`) ? 'unbook' : null;
+    }
+    if (choice === 'room') await setBooking(d, true);
+    else if (choice === 'unbook') await setBooking(d, false, true);
+  } finally {
+    menuBusy = false;
+    releaseSoon(); // falls das Loslassen im Telegram-Popup verloren ging
   }
 }
 
