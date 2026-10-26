@@ -23,6 +23,7 @@ const CONFIG = {
   ROOMS: ['1', '2', '3'],         // Räume, die beim Markieren als gebucht zur Auswahl stehen (max. 3)
 };
 
+const APP_STAND = 'Stand 26.10.2026';
 const SHEET_DATA = 'Daten';
 const SHEET_VIEW = 'Übersicht';
 const SHEET_BOOK = 'Buchungen';
@@ -31,7 +32,7 @@ const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 /* ───────────── Web-App-Endpunkte ───────────── */
 
 function doGet() {
-  return ContentService.createTextOutput('Bandprobe-Planer läuft.');
+  return ContentService.createTextOutput('Bandprobe-Planer läuft – neuer Code über den Lader aktiv (' + APP_STAND + ').');
 }
 
 function doPost(e) {
