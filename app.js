@@ -21,9 +21,12 @@ const CONFIG = {
   INITDATA_MAX_AGE_H: 24,         // Gültigkeit einer Telegram-Sitzung
   BOOKING_URL: 'https://www.volume11.de/raumbuchung/index.php', // Buchungsseite des Proberaums
   ROOMS: ['1', '2', '3'],         // Räume, die beim Markieren als gebucht zur Auswahl stehen (max. 3)
+  PROBE_START: '19:00',           // Uhrzeit der Proben im Kalender-Abo
+  PROBE_END: '21:30',
+  PROBE_ORT: 'Volume11 Proberaum',
 };
 
-const APP_STAND = 'Stand 26.10.2026';
+const APP_STAND = 'Stand 26.10.2026, mit Kalender-Abo';
 const SHEET_DATA = 'Daten';
 const SHEET_VIEW = 'Übersicht';
 const SHEET_BOOK = 'Buchungen';
@@ -31,8 +34,53 @@ const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
 /* ───────────── Web-App-Endpunkte ───────────── */
 
-function doGet() {
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.ics) {
+    if (p.ics !== icsKey_()) return ContentService.createTextOutput('Ungültiger Kalender-Link.');
+    return ContentService.createTextOutput(icsFeed_()).setMimeType(ContentService.MimeType.ICAL);
+  }
   return ContentService.createTextOutput('Bandprobe-Planer läuft – neuer Code über den Lader aktiv (' + APP_STAND + ').');
+}
+
+/* ───────────── Kalender-Abo (iCal) ───────────── */
+
+/** Geheimer Schlüssel für den Kalender-Link (aus dem Bot-Token abgeleitet, damit Fremde den Link nicht erraten). */
+function icsKey_() {
+  const d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token_() + '|ics', Utilities.Charset.UTF_8);
+  return d.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('').slice(0, 20);
+}
+
+function icsFeed_() {
+  const esc = function (t) { return String(t).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); };
+  const hm = function (t) { return t.replace(':', '') + '00'; };
+  const stamp = Utilities.formatDate(new Date(), 'UTC', "yyyyMMdd'T'HHmmss'Z'");
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Bandprobe-Planer//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:Bandprobe', 'X-WR-TIMEZONE:Europe/Berlin',
+    'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H',
+    'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin',
+    'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST', 'DTSTART:19700329T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+    'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET', 'DTSTART:19701025T030000',
+    'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+    'END:VTIMEZONE',
+  ];
+  readBookings_().forEach(function (b) {
+    const day = b.date.replace(/-/g, '');
+    lines.push(
+      'BEGIN:VEVENT',
+      'UID:bandprobe-' + b.date + '@bandprobe-planer',
+      'DTSTAMP:' + stamp,
+      'DTSTART;TZID=Europe/Berlin:' + day + 'T' + hm(CONFIG.PROBE_START),
+      'DTEND;TZID=Europe/Berlin:' + day + 'T' + hm(CONFIG.PROBE_END),
+      'SUMMARY:' + esc('Bandprobe' + (b.room ? ' – ' + roomLabel_(b.room) : '')),
+      'LOCATION:' + esc(CONFIG.PROBE_ORT + (b.room ? ', ' + roomLabel_(b.room) : '')),
+      'DESCRIPTION:' + esc('Eingetragen von ' + b.by),
+      'END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
 }
 
 function doPost(e) {
@@ -246,6 +294,8 @@ function state_(user) {
       .filter(function (b) { return b.date >= r.today; })
       .map(function (b) { return { date: b.date, by: b.by, room: b.room }; }),
     rooms: CONFIG.ROOMS,
+    icsKey: icsKey_(),
+    probeTime: CONFIG.PROBE_START + '–' + CONFIG.PROBE_END,
   };
 }
 

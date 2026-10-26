@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bandprobe-Kalender</title>
+<style>
+  :root { --bg: #ffffff; --text: #111111; --hint: #6b6b70; --sec: #f1f1f4; --accent: #2a7ae2; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --text: #f2f2f4; --hint: #9a9aa2; --sec: #222327; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text);
+         font: 16px/1.45 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 420px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 6px; }
+  p { color: var(--hint); margin: 0 0 16px; }
+  a.btn { display: block; text-align: center; text-decoration: none; padding: 13px; border-radius: 12px;
+          background: var(--accent); color: #fff; font-weight: 600; margin-bottom: 10px; }
+  a.btn.sec { background: var(--sec); color: var(--text); }
+  h2 { font-size: 15px; margin: 24px 0 6px; }
+  .copy { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; padding: 10px; border-radius: 10px; border: 1px solid var(--sec);
+          background: var(--sec); color: var(--text); font: inherit; font-size: 13px; }
+  button { border: 0; border-radius: 10px; padding: 10px 14px; background: var(--sec); color: var(--text); font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Proben im Kalender</h1>
+  <p>Tippe auf deinen Kalender. Danach erscheinen alle gebuchten Proben automatisch und bleiben aktuell.</p>
+  <a class="btn" id="apple">iPhone / Mac-Kalender</a>
+  <a class="btn sec" id="google">Google-Kalender (Android)</a>
+  <h2>Klappt nicht?</h2>
+  <p>Link kopieren und in deiner Kalender-App unter „Kalender abonnieren“ bzw. „Per URL hinzufügen“ einfügen.</p>
+  <div class="copy"><input id="url" readonly><button id="cp">Kopieren</button></div>
+</main>
+<script>
+  const feed = new URLSearchParams(location.search).get('u') || '';
+  const webcal = feed.replace(/^https?:\/\//, 'webcal://');
+  document.getElementById('apple').href = webcal;
+  document.getElementById('google').href = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(webcal);
+  const input = document.getElementById('url');
+  input.value = feed;
+  document.getElementById('cp').onclick = async () => {
+    try { await navigator.clipboard.writeText(feed); } catch (e) { input.select(); document.execCommand('copy'); }
+    document.getElementById('cp').textContent = 'Kopiert ✓';
+  };
+  if (!feed) document.querySelector('p').textContent = 'Kein Kalender-Link übergeben – bitte über die Bandprobe-App öffnen.';
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 
 Telegram-Bot + Mini App zur Probenplanung.
 
+- `kalender.html` – Hilfsseite fürs Kalender-Abo (webcal-Link auf den iCal-Feed `API_URL?ics=<Schlüssel>`).
 - `index.html` – Mini App (GitHub Pages: https://rf9zsmjdrm-png.github.io/Bandprobe/). Push auf `main` → nach 1–2 Min. live.
 - `app.js` – eigentlicher Backend-Code (Apps Script). Wird vom Lader in Apps Script automatisch von GitHub geholt → nach Push spätestens nach 10 Min. live (sofort: Sheet-Menü „Bandprobe → Code jetzt von GitHub neu laden“).
 - `Code.gs` – fester Lader, steht einmalig in Apps Script. Nur ändern, wenn unvermeidbar (erfordert manuelles Einfügen + neue Bereitstellungsversion durch den Nutzer).

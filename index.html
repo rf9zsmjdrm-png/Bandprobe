@@ -156,6 +156,14 @@ function openBooking(d) {
   if (tg.openLink) tg.openLink(url); else window.open(url, '_blank');
 }
 
+/* Kalender-Abo: Hilfsseite im Browser öffnen, die den webcal-Link an die Kalender-App übergibt */
+function subscribeCalendar() {
+  if (!state.icsKey) return showError(new Error('Kalender-Abo ist im Backend noch nicht aktiv – bitte in ein paar Minuten erneut versuchen.'));
+  const feed = API_URL + '?ics=' + state.icsKey;
+  const page = new URL('kalender.html', location.href).href + '?u=' + encodeURIComponent(feed);
+  if (tg.openLink) tg.openLink(page); else window.open(page, '_blank');
+}
+
 function ask(text) {
   return new Promise(res => {
     if (tg.showConfirm) tg.showConfirm(text, ok => res(!!ok));
@@ -229,7 +237,10 @@ function renderCalendar(ms) {
 function renderBooking(ms) {
   let html = `<p class="hint">Hier seht ihr die besten Termine. Über „Buchen“ öffnet sich die Seite von Volume11
     (dort ganz normal einloggen und buchen). Danach den Termin hier als gebucht markieren – dann bekommt die Gruppe Bescheid.</p>
-    <button class="btn primary wide" data-open="">Buchungsseite öffnen ↗</button>`;
+    <button class="btn primary wide" data-open="">Buchungsseite öffnen ↗</button>
+    <button class="btn wide" id="calsub">Proben im Handy-Kalender abonnieren</button>
+    <p class="hint">Einmal abonnieren – danach erscheinen alle gebuchten Proben${state.probeTime ? ' (' + esc(state.probeTime) + ' Uhr)' : ''}
+      automatisch in deinem Kalender, auch spätere Änderungen.</p>`;
 
   const bookings = state.bookings || [];
   if (bookings.length) {
@@ -299,6 +310,8 @@ function render() {
   const none = document.getElementById('none');
   if (none) none.onclick = () => { mine = new Set(); render(); };
   app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openBooking(b.dataset.open));
+  const calsub = document.getElementById('calsub');
+  if (calsub) calsub.onclick = subscribeCalendar;
   app.querySelectorAll('[data-book]').forEach(b => b.onclick = () => setBooking(b.dataset.book, true));
   app.querySelectorAll('[data-unbook]').forEach(b => b.onclick = () => setBooking(b.dataset.unbook, false));
   updateMainButton();
