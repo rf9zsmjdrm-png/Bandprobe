@@ -17,7 +17,8 @@ const CONFIG = {
   MODE: 'verfuegbar',             // 'abwesend' = man markiert Tage, an denen man NICHT kann
                                   // 'verfuegbar' = man markiert Tage, an denen man kann
   REMINDER_HOUR: 10,              // Samstags um diese Uhrzeit: Erinnerung an alle ohne Eintrag für die kommende Woche
-  SUMMARY_DAYS: 14,               // Zeitraum der wöchentlichen Zusammenfassung
+  ROOM_MSG_HOUR: 14,              // Täglich um diese Uhrzeit (Apps Script: innerhalb dieser Stunde): „Heute sind wir in Raum X“, falls heute gebucht
+  SUMMARY_DAYS: 14,              // Zeitraum der wöchentlichen Zusammenfassung
   INITDATA_MAX_AGE_H: 24,         // Gültigkeit einer Telegram-Sitzung
   BOOKING_URL: 'https://www.volume11.de/raumbuchung/index.php', // Buchungsseite des Proberaums
   ROOMS: ['1', '2', '3'],         // Räume, die beim Markieren als gebucht zur Auswahl stehen (max. 3)
@@ -565,6 +566,34 @@ function saturdayReminder() {
   });
 }
 
+/**
+ * Tägliche Raum-Nachricht: ist heute eine Probe gebucht, schreibt der Bot gegen ROOM_MSG_HOUR Uhr
+ * „Heute sind wir in Raum X“ in die Gruppe. Einmal pro Tag (Sperre über Skripteigenschaft ROOM_MSG_SENT).
+ * force = true (Menü „jetzt senden“) ignoriert die Sperre.
+ */
+function dailyRoomMessage_(force) {
+  const chatId = prop_('CHAT_ID');
+  if (!chatId) throw new Error('CHAT_ID fehlt.');
+  const today = range_().today;
+  const props = PropertiesService.getScriptProperties();
+  if (!force && props.getProperty('ROOM_MSG_SENT') === today) return null;
+  const b = readBookings_(true).filter(function (x) { return x.date === today; })[0];
+  if (!b) return null; // heute keine Probe gebucht – keine Nachricht
+  const text = b.room ? '🎸 Heute sind wir in ' + roomLabel_(b.room) + '.' : '🎸 Heute ist Probe.';
+  tg_('sendMessage', { chat_id: chatId, text: text });
+  props.setProperty('ROOM_MSG_SENT', today);
+  return text;
+}
+
+/** Trigger-Funktion (täglich, über extra1 im Lader erreichbar). */
+function extra1() { return dailyRoomMessage_(false); }
+
+/** Menüpunkt „Raum-Nachricht jetzt senden“ (über extra2 im Lader erreichbar). */
+function extra2() {
+  const text = dailyRoomMessage_(true);
+  SpreadsheetApp.getUi().alert(text ? 'Gesendet: ' + text : 'Heute ist keine Probe gebucht – nichts gesendet.');
+}
+
 /* ───────────── Einrichtung (Menü im Sheet) ───────────── */
 
 function onOpen() {
@@ -574,6 +603,7 @@ function onOpen() {
     .addItem('3. Automatik einrichten (Erinnerung, Übersicht)', 'setupTriggers')
     .addSeparator()
     .addItem('Erinnerung jetzt senden', 'saturdayReminder')
+    .addItem('Raum-Nachricht jetzt senden (nur wenn heute gebucht)', 'extra2')
     .addItem('Übersicht aktualisieren', 'refreshOverview')
     .addItem('Code jetzt von GitHub neu laden', 'reloadCode')
     .addToUi();
@@ -606,13 +636,15 @@ function findChatId() {
 function setupTriggers() {
   ScriptApp.getProjectTriggers()
     .filter(function (t) {
-      return ['weeklySummary', 'saturdayReminder', 'refreshOverviewIfDirty', 'autoUpdate']
+      return ['weeklySummary', 'saturdayReminder', 'refreshOverviewIfDirty', 'autoUpdate', 'extra1']
         .indexOf(t.getHandlerFunction()) !== -1;
     })
     .forEach(function (t) { ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('refreshOverviewIfDirty').timeBased().everyMinutes(10).create();
   ScriptApp.newTrigger('saturdayReminder').timeBased()
     .onWeekDay(ScriptApp.WeekDay.SATURDAY).atHour(CONFIG.REMINDER_HOUR).create();
+  ScriptApp.newTrigger('extra1').timeBased().everyDays(1).atHour(CONFIG.ROOM_MSG_HOUR).create();
   SpreadsheetApp.getUi().alert('Eingerichtet: Erinnerung jeden Samstag gegen ' + CONFIG.REMINDER_HOUR +
-    ' Uhr, Übersicht wird alle 10 Minuten aktualisiert.');
+    ' Uhr, Raum-Nachricht täglich gegen ' + CONFIG.ROOM_MSG_HOUR +
+    ' Uhr (nur an Tagen mit Buchung), Übersicht wird alle 10 Minuten aktualisiert.');
 }
