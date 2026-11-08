@@ -579,7 +579,7 @@ function dailyRoomMessage_(force) {
   if (!force && props.getProperty('ROOM_MSG_SENT') === today) return null;
   const b = readBookings_(true).filter(function (x) { return x.date === today; })[0];
   if (!b) return null; // heute keine Probe gebucht – keine Nachricht
-  const text = b.room ? '🎸 Heute sind wir in ' + roomLabel_(b.room) + '.' : '🎸 Heute ist Probe.';
+  const text = b.room ? 'Heute sind wir in ' + roomLabel_(b.room) + '.' : 'Heute ist Probe.';
   tg_('sendMessage', { chat_id: chatId, text: text });
   props.setProperty('ROOM_MSG_SENT', today);
   return text;
