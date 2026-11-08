@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Bandprobe</title>
+<!-- Verbindung zu Google schon aufbauen, während die Seite lädt -->
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8a8e);
+    --sec: var(--tg-theme-secondary-bg-color, #f1f1f4);
+    --accent: var(--tg-theme-button-color, #2a7ae2);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --ok: #2e9e5b; --mid: #d99a1e; --bad: #d64545; --pin: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px 12px 90px; background: var(--bg); color: var(--text);
+         font: 15px/1.4 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 19px; margin: 2px 0 4px; }
+  .hint { color: var(--hint); font-size: 13px; margin: 0 0 10px; }
+  .tabs { display: flex; background: var(--sec); border-radius: 12px; padding: 3px; margin: 10px 0 6px; }
+  .tabs button { flex: 1; border: 0; background: transparent; color: var(--hint); font: inherit; font-weight: 600;
+                 padding: 8px; border-radius: 10px; cursor: pointer; }
+  .tabs button.active { background: var(--bg); color: var(--text); }
+  .tools { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .tools button, .btn { border: 0; border-radius: 10px; padding: 8px 10px; background: var(--sec);
+                        color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .tools button { flex: 1; }
+  .btn.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .btn.wide { width: 100%; padding: 11px; font-size: 15px; margin: 6px 0 4px; }
+  .month { font-weight: 650; margin: 18px 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .wd { font-size: 11px; color: var(--hint); text-align: center; padding-bottom: 2px; }
+  .day { aspect-ratio: 1; border-radius: 11px; background: var(--sec); border: 2px solid transparent;
+         display: flex; flex-direction: column; align-items: center; justify-content: center;
+         color: var(--text); font: inherit; font-size: 15px; padding: 0; cursor: pointer; position: relative;
+         -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+         -webkit-touch-callout: none; touch-action: manipulation; }
+  .day small { font-size: 10px; font-weight: 700; margin-top: 1px; }
+  .day.off { background: transparent; opacity: .3; cursor: default; }
+  .day.empty { visibility: hidden; }
+  .day.c-ok small { color: var(--ok); } .day.c-mid small { color: var(--mid); } .day.c-bad small { color: var(--bad); }
+  .day.sel-abwesend { background: rgba(214,69,69,.16); border-color: var(--bad); }
+  .day.sel-abwesend span { text-decoration: line-through; }
+  .day.sel-verfuegbar { background: rgba(46,158,91,.16); border-color: var(--ok); }
+  .day.today span { font-weight: 800; }
+  .day .pin { position: absolute; top: 2px; right: 4px; font-size: 10px; }
+  .day .room { position: absolute; top: 3px; left: 0; right: 0; text-align: center; font-style: normal;
+               font-size: 9px; font-weight: 700; color: var(--pin); }
+  .day.booked { border-color: var(--pin); }
+  .day.declined { opacity: .35; }
+  .day.declined span { text-decoration: line-through; }
+  .wk { border: 2px solid transparent; border-radius: 11px; background: transparent; color: var(--hint);
+        font: inherit; font-size: 10px; line-height: 1.15; padding: 2px; cursor: pointer; }
+  .wk.on { background: rgba(214,69,69,.16); border-color: var(--bad); color: var(--bad); font-weight: 700; }
+  h2 { font-size: 15px; margin: 22px 0 6px; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { background: var(--sec); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
+  .list b { margin-right: 6px; }
+  .list .who { color: var(--hint); font-size: 12px; }
+  .list .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .list .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .list .actions .btn { flex: 1; }
+  .list li.booked { border-left: 4px solid var(--pin); }
+  .pending { color: var(--hint); font-size: 13px; margin-top: 10px; }
+  .msg { text-align: center; color: var(--hint); margin-top: 40vh; padding: 0 20px; }
+  .status { position: fixed; top: 8px; right: 12px; background: var(--sec); color: var(--hint);
+            font-size: 12px; padding: 4px 10px; border-radius: 999px; display: none; }
+  .err { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bad); color: #fff;
+         padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center;
+              justify-content: center; padding: 16px; z-index: 50; }
+  .sheet { background: var(--bg); color: var(--text); border-radius: 14px; width: 100%; max-width: 340px;
+           padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+  .sheet h3 { margin: 0 0 4px; font-size: 17px; text-align: center; }
+  .sheet p { margin: 0 0 12px; color: var(--hint); font-size: 13px; text-align: center; }
+  .sheet button { display: block; width: 100%; border: 0; border-radius: 10px; padding: 11px; margin-top: 8px;
+                  font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-text); }
+  .sheet button.cancel { background: var(--sec); color: var(--text); font-weight: 400; }
+</style>
+</head>
+<body>
+<div id="app"><p class="msg">Lade …</p></div>
+
+<script>
+/* ▼▼▼ Hier die URL der Apps-Script-Web-App eintragen ▼▼▼ */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyXDOl19vxNTKjTvsaEbLTcxBreg7si84Nyxb_WpmWts7rdHKfFp1MIL2kOepTSwc-s/exec';
+/* ▲▲▲ ─────────────────────────────────────────────── ▲▲▲ */
+
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli',
+                'August', 'September', 'Oktober', 'November', 'Dezember'];
+const tg = window.Telegram && window.Telegram.WebApp;
+const app = document.getElementById('app');
+
+let state = null;
+let saved = new Set();
+let mine = new Set();
+let savedDeclined = new Set();   // Wochen (Montag) mit „keine Zeit“
+let declined = new Set();
+let tab = 'cal';
+
+const dow = d => new Date(d + 'T12:00:00Z').getUTCDay();
+const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const fmt = d => { const p = d.split('-'); return WD[dow(d)] + ' ' + Number(p[2]) + '.' + Number(p[1]) + '.'; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const mondayOf = d => addDays(d, -((dow(d) + 6) % 7));
+const sameSet = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
+function dirty() {
+  return !sameSet(saved, mine) || !sameSet(savedDeclined, declined);
+}
+
+function members() {
+  return state.members.map(m => m.isMe
+    ? Object.assign({}, m, { days: [...mine], declined: [...declined], answered: m.answered || dirty() })
+    : m);
+}
+
+/* true = kann, false = kann nicht, null = unbekannt */
+function can(m, d) {
+  if (!m.answered) return null;
+  const marked = m.days.includes(d);
+  return state.mode === 'abwesend' ? !marked : marked;
+}
+
+function countFor(d, ms) {
+  const missing = ms.filter(m => can(m, d) !== true);
+  return { yes: ms.length - missing.length, total: ms.length, missing };
+}
+
+function bookedBy(d) {
+  const b = (state.bookings || []).find(x => x.date === d);
+  return b ? b.by : null;
+}
+function bookingOf(d) {
+  return (state.bookings || []).find(x => x.date === d) || null;
+}
+
+/* Link zur Buchungsseite – versucht, direkt den Tag zu öffnen (MRBS-Parameter) */
+function bookingLink(d) {
+  const base = state.bookingUrl;
+  if (!d) return base;
+  const [y, m, day] = d.split('-');
+  return base + (base.includes('?') ? '&' : '?') +
+    `view=day&page_date=${d}&year=${y}&month=${Number(m)}&day=${Number(day)}`;
+}
+
+function openBooking(d) {
+  const url = bookingLink(d);
+  if (tg.openLink) tg.openLink(url); else window.open(url, '_blank');
+}
+
+/* Kalender-Abo: Hilfsseite im Browser öffnen, die den webcal-Link an die Kalender-App übergibt */
+function subscribeCalendar() {
+  if (!state.icsKey) return showError(new Error('Kalender-Abo ist im Backend noch nicht aktiv – bitte in ein paar Minuten erneut versuchen.'));
+  const feed = API_URL + '?ics=' + state.icsKey;
+  const page = new URL('kalender.html', location.href).href + '?u=' + encodeURIComponent(feed);
+  if (tg.openLink) tg.openLink(page); else window.open(page, '_blank');
+}
+
+function ask(text) {
+  return new Promise(res => {
+    if (tg.showConfirm) tg.showConfirm(text, ok => res(!!ok));
+    else res(window.confirm(text));
+  });
+}
+
+/* ───────── Ansicht: Verfügbarkeit ───────── */
+function renderCalendar(ms) {
+  const allowed = new Set(state.dates);
+  const absent = state.mode === 'abwesend';
+  let html = `<p class="hint">${absent
+      ? 'Tippe die Tage an, an denen du <b>nicht</b> kannst. Alles andere zählt als „kann“.'
+      : 'Tippe die Tage an, an denen du <b>kannst</b>.'} Die Zahl zeigt, wie viele können. Blau umrandet mit „Raum …“ = gebucht.
+      Ganze Woche verhindert? Rechts auf <b>„keine Zeit“</b> tippen.
+      Tag <b>gedrückt halten</b> (am PC: Rechtsklick) = als gebucht markieren.
+      ${state.me.stale && state.me.answered && state.nextMonday
+        ? `<br>⏰ Für die Woche ab <b>${fmt(state.nextMonday)}</b> hast du noch keinen Tag eingetragen.` : ''}</p>
+    <div class="tools"><button id="all">Alle markieren</button><button id="none">Auswahl leeren</button></div>`;
+
+  // Nur Wochentage anzeigen, die überhaupt auswählbar sind (z. B. Mo–Fr); pro Woche eine Zeile + Button „keine Zeit“
+  const cols = [1, 2, 3, 4, 5, 6, 0].filter(w => state.dates.some(x => dow(x) === w));
+  const gridStyle = `grid-template-columns:repeat(${cols.length},1fr) 1.15fr`;
+  const header = cols.map(w => `<div class="wd">${WD[w]}</div>`).join('') + '<div class="wd"></div>';
+  let monday = mondayOf(state.today), month = '', open = false;
+  while (monday <= state.end) {
+    const week = cols.map(w => addDays(monday, (w + 6) % 7));
+    const inWeek = week.filter(x => allowed.has(x) && x >= state.today);
+    if (inWeek.length) {
+      // Monatsüberschrift: nach dem Monat des ersten angezeigten Tages der Woche
+      // (fällt der 1. aufs Wochenende, beginnt der neue Monat erst in der Woche danach)
+      const head = inWeek[0];
+      if (head.slice(0, 7) !== month) {
+        month = head.slice(0, 7);
+        if (open) html += '</div>';
+        const m = Number(head.slice(5, 7)) - 1;
+        html += `<div class="month">${MONTHS[m]} ${head.slice(0, 4)}</div><div class="grid" style="${gridStyle}">${header}`;
+        open = true;
+      }
+      const isDeclined = declined.has(monday);
+      week.forEach(x => {
+        const num = Number(x.slice(8));
+        if (x < state.today || x > state.end) {
+          html += '<div class="day empty"></div>';
+        } else if (!allowed.has(x)) {
+          html += `<div class="day off"><span>${num}</span></div>`;
+        } else {
+          const c = countFor(x, ms);
+          const cls = c.total && c.yes === c.total ? 'c-ok' : (c.yes >= c.total - 1 ? 'c-mid' : 'c-bad');
+          const sel = mine.has(x) ? ' sel-' + state.mode : '';
+          const bk = bookingOf(x);
+          const pin = bk ? (bk.room ? `<i class="room">Raum ${esc(bk.room)}</i>` : '<i class="pin">📌</i>') : '';
+          html += `<button class="day ${cls}${sel}${bk ? ' booked' : ''}${isDeclined ? ' declined' : ''}${x === state.today ? ' today' : ''}" data-d="${x}">
+                     ${pin}<span>${num}</span><small>${c.yes}/${c.total}</small></button>`;
+        }
+      });
+      html += `<button class="wk${isDeclined ? ' on' : ''}" data-week="${monday}">${isDeclined ? '🚫<br>keine Zeit' : 'keine<br>Zeit'}</button>`;
+    }
+    monday = addDays(monday, 7);
+  }
+  if (open) html += '</div>';
+
+  const pending = ms.filter(m => !m.answered);
+  if (pending.length) {
+    html += `<p class="pending">Noch nichts eingetragen: ${pending.map(m => esc(m.name)).join(', ')}</p>`;
+  }
+  return html;
+}
+
+/* ───────── Ansicht: Buchen ───────── */
+function renderBooking(ms) {
+  let html = `<p class="hint">Hier seht ihr die besten Termine. Über „Buchen“ öffnet sich die Seite von Volume11
+    (dort ganz normal einloggen und buchen). Danach den Termin hier als gebucht markieren – dann bekommt die Gruppe Bescheid.</p>
+    <button class="btn primary wide" data-open="">Buchungsseite öffnen ↗</button>
+    <button class="btn wide" id="calsub">Proben im Handy-Kalender abonnieren</button>
+    <p class="hint">Einmal abonnieren – danach erscheinen alle gebuchten Proben${state.probeTime ? ' (' + esc(state.probeTime) + ' Uhr)' : ''}
+      automatisch in deinem Kalender, auch spätere Änderungen.</p>`;
+
+  const bookings = state.bookings || [];
+  if (bookings.length) {
+    html += '<h2>📌 Gebuchte Proben</h2><ul class="list">' + bookings.map(b => {
+      const c = countFor(b.date, ms);
+      return `<li class="booked"><div class="row"><div><b>${fmt(b.date)}</b>${c.yes}/${c.total}
+                <div class="who">${b.room ? `<b>Raum ${esc(b.room)}</b> · ` : ''}gebucht von ${esc(b.by)}</div></div>
+                <button class="btn" data-unbook="${b.date}">Zurücknehmen</button></div></li>`;
+    }).join('') + '</ul>';
+  }
+
+  const candidates = state.dates
+    .filter(d => !bookedBy(d))
+    .map(d => Object.assign({ d }, countFor(d, ms)))
+    .filter(x => x.yes > 0)
+    .sort((a, b) => b.yes - a.yes || a.d.localeCompare(b.d))
+    .slice(0, 8);
+
+  html += '<h2>Beste Termine</h2>';
+  if (!candidates.length) {
+    html += '<p class="pending">Noch keine Termine – erst müssen ein paar Leute ihre Tage eintragen.</p>';
+  } else {
+    html += '<ul class="list">' + candidates.map(x => `
+      <li><div><b>${fmt(x.d)}</b>${x.yes}/${x.total} ${x.yes === x.total ? '✅' : ''}</div>
+        ${x.missing.length ? `<div class="who">fehlt: ${x.missing.map(m => esc(m.name) + (m.answered ? '' : '?')).join(', ')}</div>` : ''}
+        <div class="actions">
+          <button class="btn" data-open="${x.d}">Buchen ↗</button>
+          <button class="btn primary" data-book="${x.d}">Als gebucht markieren</button>
+        </div></li>`).join('') + '</ul>';
+  }
+  return html;
+}
+
+function render() {
+  const ms = members();
+  let html = `<h1>Bandprobe 🎸</h1>
+    <div class="tabs">
+      <button data-tab="cal" class="${tab === 'cal' ? 'active' : ''}">Verfügbarkeit</button>
+      <button data-tab="book" class="${tab === 'book' ? 'active' : ''}">Buchen</button>
+    </div>`;
+  html += tab === 'cal' ? renderCalendar(ms) : renderBooking(ms);
+  app.innerHTML = html;
+
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  app.querySelectorAll('button.day').forEach(b => attachHold(b, () => dayMenu(b.dataset.d)));
+  app.querySelectorAll('button.day').forEach(b => b.onclick = () => {
+    if (Date.now() < suppressUntil) return; // war ein langer Druck / Rechtsklick, kein Antippen
+    const x = b.dataset.d;
+    if (declined.has(mondayOf(x))) declined.delete(mondayOf(x)); // Tag antippen hebt „keine Zeit“ auf
+    mine.has(x) ? mine.delete(x) : mine.add(x);
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+    render();
+  });
+  const all = document.getElementById('all');
+  if (all) all.onclick = () => { mine = new Set(state.dates.filter(x => !declined.has(mondayOf(x)))); render(); };
+  app.querySelectorAll('[data-week]').forEach(b => b.onclick = () => {
+    const w = b.dataset.week;
+    if (declined.has(w)) {
+      declined.delete(w);
+    } else {
+      declined.add(w);
+      [...mine].forEach(x => { if (mondayOf(x) === w) mine.delete(x); }); // Tage dieser Woche abwählen
+    }
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+    render();
+  });
+  const none = document.getElementById('none');
+  if (none) none.onclick = () => { mine = new Set(); render(); };
+  app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openBooking(b.dataset.open));
+  const calsub = document.getElementById('calsub');
+  if (calsub) calsub.onclick = subscribeCalendar;
+  app.querySelectorAll('[data-book]').forEach(b => b.onclick = () => setBooking(b.dataset.book, true));
+  app.querySelectorAll('[data-unbook]').forEach(b => b.onclick = () => setBooking(b.dataset.unbook, false));
+  updateMainButton();
+}
+
+function updateMainButton() {
+  const isDirty = dirty();
+  const needsConfirm = !state.me.answered;
+  if (isDirty || needsConfirm) {
+    tg.MainButton.setText(isDirty ? 'Speichern' : 'Passt so – bestätigen');
+    tg.MainButton.show();
+  } else {
+    tg.MainButton.hide();
+  }
+  isDirty ? tg.enableClosingConfirmation() : tg.disableClosingConfirmation();
+}
+
+/* Anfrage mit Zeitgrenze; hängende Verbindungen werden abgebrochen und neu versucht */
+async function api(action, extra, tries) {
+  tries = tries || (action === 'load' ? 3 : 2);
+  const body = JSON.stringify(Object.assign({ action, initData: tg.initData }, extra || {}));
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    const ctrl = window.AbortController ? new AbortController() : null;
+    // Laden: nach 5 s neu versuchen. Speichern/Buchen: etwas mehr Geduld, damit nichts doppelt oder halb ankommt
+    const timer = ctrl && setTimeout(() => ctrl.abort(), action === 'load' ? 5000 : 15000);
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // vermeidet CORS-Preflight
+        body,
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      const j = await res.json();
+      if (!j.ok) throw Object.assign(new Error(j.error), { fatal: true }); // Fehler vom Skript: nicht wiederholen
+      return j;
+    } catch (e) {
+      lastErr = e.name === 'AbortError' ? new Error('Zeitüberschreitung – Server antwortet nicht') : e;
+      if (e.fatal) break;
+      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastErr;
+}
+
+/* Letzten Stand lokal merken, damit die App beim nächsten Öffnen sofort etwas zeigt */
+const CACHE_KEY = 'bandprobe_state_v1';
+function cacheRead() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    return c && c.today ? c : null;
+  } catch (e) { return null; }
+}
+function cacheWrite(s) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch (e) { /* egal */ }
+}
+
+function setStatus(text) {
+  let el = document.getElementById('status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'status';
+    el.className = 'status';
+    document.body.appendChild(el);
+  }
+  el.textContent = text || '';
+  el.style.display = text ? 'block' : 'none';
+}
+
+/* keepSelection: ungespeicherte Kalender-Auswahl beim Buchen nicht verwerfen */
+function apply(res, keepSelection) {
+  const keep = keepSelection && dirty() ? { mine: new Set(mine), declined: new Set(declined) } : null;
+  state = res;
+  cacheWrite(res);
+  saved = new Set(res.myDays);
+  savedDeclined = new Set(res.myDeclined || []);
+  mine = keep ? keep.mine : new Set(res.myDays);
+  declined = keep ? keep.declined : new Set(res.myDeclined || []);
+  render();
+}
+
+function showError(e) {
+  const el = document.createElement('div');
+  el.className = 'err';
+  el.textContent = 'Fehler: ' + (e.message || e);
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function save() {
+  tg.MainButton.showProgress();
+  try {
+    apply(await api('save', { days: [...mine], declined: [...declined] }));
+    tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+  } catch (e) {
+    showError(e);
+  } finally {
+    tg.MainButton.hideProgress();
+  }
+}
+
+/* Raum auswählen – Telegram-Popup mit bis zu 3 Buttons; Schließen = Abbrechen */
+function pickRoom(d) {
+  const rooms = state.rooms || [];
+  if (!rooms.length) return Promise.resolve('');
+  return new Promise(res => {
+    const bg = document.createElement('div');
+    bg.className = 'sheet-bg';
+    bg.innerHTML = `<div class="sheet" role="dialog">
+        <h3>Raumnummer</h3>
+        <p>Welchen Raum habt ihr am ${fmt(d)} gebucht?</p>
+        ${rooms.map(r => `<button data-room="${esc(r)}">Raum ${esc(r)}</button>`).join('')}
+        <button class="cancel" data-room="">Abbrechen</button>
+      </div>`;
+    const done = r => {
+      document.removeEventListener('keydown', onKey);
+      bg.remove();
+      res(r);
+    };
+    const onKey = e => { if (e.key === 'Escape') done(null); };
+    bg.addEventListener('click', e => {
+      if (e.target === bg) return done(null); // Klick daneben = Abbrechen
+      const b = e.target.closest('button');
+      if (b) done(b.dataset.room || null);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(bg);
+    tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+  });
+}
+
+async function setBooking(d, booked, confirmed) {
+  let room = '';
+  if (booked) {
+    room = await pickRoom(d);
+    if (room === null) return; // abgebrochen
+  } else if (!confirmed) {
+    const ok = await ask(`Buchung für ${fmt(d)} zurücknehmen? (Die Buchung bei Volume11 selbst bitte dort stornieren.)`);
+    if (!ok) return;
+  }
+  setStatus('Speichere …');
+  try {
+    apply(await api(booked ? 'book' : 'unbook', { date: d, room }), true);
+    tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+  } catch (e) {
+    showError(e);
+  } finally {
+    setStatus('');
+  }
+}
+
+/* ───────── Gedrückt halten / Rechtsklick auf einen Tag ───────── */
+let suppressUntil = 0;   // bis wann ein „click“ ignoriert wird (nach langem Druck)
+let menuBusy = false;
+const releaseSoon = () => { suppressUntil = Math.min(suppressUntil, Date.now() + 400); };
+document.addEventListener('pointerup', releaseSoon, true);
+document.addEventListener('pointercancel', releaseSoon, true);
+
+function attachHold(el, fn) {
+  let timer = null, sx = 0, sy = 0;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; cancel();
+    timer = setTimeout(() => { timer = null; suppressUntil = Infinity; fn(); }, 500);
+  });
+  el.addEventListener('pointermove', e => {
+    if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) cancel(); // Scrollen ist kein Halten
+  });
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('contextmenu', e => { // Rechtsklick (und Android-Langdruck)
+    e.preventDefault();
+    cancel();
+    suppressUntil = Date.now() + 600;
+    fn();
+  });
+}
+
+function popup(params) {
+  return new Promise(res => {
+    try { tg.showPopup(params, id => res(id || null)); } catch (e) { res(null); }
+  });
+}
+
+async function dayMenu(d) {
+  if (menuBusy || !state) return;
+  menuBusy = true;
+  tg.HapticFeedback && tg.HapticFeedback.impactOccurred('medium');
+  try {
+    const bk = bookingOf(d);
+    if (!bk) { await setBooking(d, true); return; }
+    let choice;
+    if (tg.showPopup) {
+      choice = await popup({
+        title: `${fmt(d)} ist gebucht`,
+        message: `${bk.room ? 'Raum ' + bk.room + ' · ' : ''}eingetragen von ${bk.by}`,
+        buttons: [
+          { id: 'room', type: 'default', text: 'Raum ändern' },
+          { id: 'unbook', type: 'destructive', text: 'Zurücknehmen' },
+          { type: 'cancel' },
+        ],
+      });
+    } else {
+      choice = window.confirm(`${fmt(d)} ist gebucht. Buchung zurücknehmen?`) ? 'unbook' : null;
+    }
+    if (choice === 'room') await setBooking(d, true);
+    else if (choice === 'unbook') await setBooking(d, false, true);
+  } finally {
+    menuBusy = false;
+    releaseSoon(); // falls das Loslassen im Telegram-Popup verloren ging
+  }
+}
+
+(async function init() {
+  if (!tg || !tg.initData) {
+    app.innerHTML = '<p class="msg">Bitte öffne diese Seite über den Button in eurer Telegram-Gruppe.</p>';
+    return;
+  }
+  tg.ready();
+  tg.expand();
+  tg.MainButton.onClick(save);
+  load();
+})();
+
+async function load() {
+  // 1. Sofort den zuletzt gespeicherten Stand zeigen (falls vorhanden und von heute)
+  const cached = cacheRead();
+  const n = new Date();
+  const localToday = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+  const showCached = !state && cached && cached.today === localToday;
+  if (showCached) {
+    state = cached; saved = new Set(cached.myDays); mine = new Set(cached.myDays);
+    savedDeclined = new Set(cached.myDeclined || []); declined = new Set(cached.myDeclined || []);
+    render();
+  }
+  setStatus(state ? 'Aktualisiere …' : '');
+  if (!state) app.innerHTML = '<p class="msg">Lade … (beim ersten Aufruf kann das ein paar Sekunden dauern)</p>';
+
+  // 2. Frische Daten holen
+  try {
+    apply(await api('load'), true);
+    setStatus('');
+  } catch (e) {
+    setStatus('');
+    if (state) {
+      showError(new Error('Konnte nicht aktualisieren – angezeigt wird der letzte Stand.'));
+    } else {
+      app.innerHTML = `<p class="msg">Konnte nicht laden: ${esc(e.message || e)}<br><br>
+        <button class="btn primary" id="retry">Erneut versuchen</button></p>`;
+      document.getElementById('retry').onclick = load;
+    }
+  }
+}
+</script>
+</body>
+</html>
