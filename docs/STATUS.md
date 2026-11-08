@@ -9,7 +9,7 @@
 1. Keine bekannt – neue Wünsche als Auftrag anlegen (`/auftrag`).
 
 ## Aktive Aufträge
-- keine
+- `docs/auftraege/gebucht-fehlende.md` – Fehlende („kann nicht“/offen) bei gebuchten Proben anzeigen
 
 ## Offen / wartet auf Julius
 - Klären: Ist dieser Ordner ein Klon des GitHub-Repos oder eine Kopie? (lokales Git hat keinen Remote)
