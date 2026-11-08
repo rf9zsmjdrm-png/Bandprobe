@@ -524,7 +524,8 @@ function weeklySummary() {
     const yes = all.length - missing.length;
     if (booked[d]) {
       lines.push(fmt_(d) + '  📌 GEBUCHT' + (booked[d].room ? ' – ' + roomLabel_(booked[d].room) : '') +
-        ' (' + yes + '/' + all.length + ')');
+        ' (' + yes + '/' + all.length + ')' +
+        (missing.length ? ' – fehlt: ' + missing.map(function (m) { return m.name + (m.answered ? '' : '?'); }).join(', ') : ''));
     } else if (missing.length === 0 && all.length > 0) {
       lines.push(fmt_(d) + '  ✅ ' + yes + '/' + all.length);
     } else {

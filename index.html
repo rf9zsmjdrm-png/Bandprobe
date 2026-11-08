@@ -67,6 +67,9 @@
   .list .actions { display: flex; gap: 6px; margin-top: 8px; }
   .list .actions .btn { flex: 1; }
   .list li.booked { border-left: 4px solid var(--pin); }
+  .list .absent { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(128,128,128,.25); font-size: 13px; }
+  .list .absent b { margin-right: 0; color: var(--bad); }
+  .list .absent.ok { color: var(--ok); }
   .pending { color: var(--hint); font-size: 13px; margin-top: 10px; }
   .msg { text-align: center; color: var(--hint); margin-top: 40vh; padding: 0 20px; }
   .status { position: fixed; top: 8px; right: 12px; background: var(--sec); color: var(--hint);
@@ -132,6 +135,13 @@ function can(m, d) {
 function countFor(d, ms) {
   const missing = ms.filter(m => can(m, d) !== true);
   return { yes: ms.length - missing.length, total: ms.length, missing };
+}
+
+/* Wer fehlt an Tag d: { no: kann nicht, open: noch nicht geantwortet } */
+function absentOn(d, ms) {
+  const no = [], open = [];
+  ms.forEach(m => { const c = can(m, d); if (c === false) no.push(m.name); else if (c === null) open.push(m.name); });
+  return { no, open };
 }
 
 function bookedBy(d) {
@@ -246,9 +256,14 @@ function renderBooking(ms) {
   if (bookings.length) {
     html += '<h2>📌 Gebuchte Proben</h2><ul class="list">' + bookings.map(b => {
       const c = countFor(b.date, ms);
+      const a = absentOn(b.date, ms);
+      const absent = a.no.length || a.open.length
+        ? `<div class="absent">${a.no.length ? `<div>❌ kann nicht: <b>${a.no.map(esc).join(', ')}</b></div>` : ''}${
+            a.open.length ? `<div class="who">❔ noch offen: ${a.open.map(esc).join(', ')}</div>` : ''}</div>`
+        : (c.total ? '<div class="absent ok">✅ alle können</div>' : '');
       return `<li class="booked"><div class="row"><div><b>${fmt(b.date)}</b>${c.yes}/${c.total}
                 <div class="who">${b.room ? `<b>Raum ${esc(b.room)}</b> · ` : ''}gebucht von ${esc(b.by)}</div></div>
-                <button class="btn" data-unbook="${b.date}">Zurücknehmen</button></div></li>`;
+                <button class="btn" data-unbook="${b.date}">Zurücknehmen</button></div>${absent}</li>`;
     }).join('') + '</ul>';
   }
 
@@ -511,7 +526,10 @@ async function dayMenu(d) {
     if (tg.showPopup) {
       choice = await popup({
         title: `${fmt(d)} ist gebucht`,
-        message: `${bk.room ? 'Raum ' + bk.room + ' · ' : ''}eingetragen von ${bk.by}`,
+        message: `${bk.room ? 'Raum ' + bk.room + ' · ' : ''}eingetragen von ${bk.by}` + (() => {
+          const a = absentOn(d, members());
+          return (a.no.length ? `\nKann nicht: ${a.no.join(', ')}` : '') + (a.open.length ? `\nNoch offen: ${a.open.join(', ')}` : '');
+        })(),
         buttons: [
           { id: 'room', type: 'default', text: 'Raum ändern' },
           { id: 'unbook', type: 'destructive', text: 'Zurücknehmen' },
