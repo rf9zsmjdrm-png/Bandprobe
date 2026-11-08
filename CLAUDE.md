@@ -23,3 +23,4 @@ Regeln:
 | Kalender-Abo-Seite | `kalender.html` |
 | Lader / Scopes | `Code.gs`, `appsscript.json` – nur wenn unvermeidbar |
 | Entscheidung nachschlagen | `grep -i <stichwort> docs/ENTSCHEIDUNGEN.md` |
+| Push / GitHub-Token | `docs/wissen/github-push.md` |

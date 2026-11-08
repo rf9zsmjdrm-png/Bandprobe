@@ -4,10 +4,12 @@
 ## Stand (08.11.2026)
 - Bot + Mini App live (GitHub Pages, Apps Script lädt `app.js` von GitHub).
 - Gebuchte Proben zeigen Fehlende (kann nicht / offen) in Mini App, Tag-Menü und Wochen-Zusammenfassung – gepusht (08.11.), live nach 1–2 Min. (Mini App) bzw. ≤10 Min. (Backend).
-- Git-Remote `origin` = GitHub „Bandprobe“; Push per HTTPS + Schlüsselbund-Token (Fine-grained, siehe ENTSCHEIDUNGEN).
+- Git-Remote `origin` = GitHub „Bandprobe“; Push per HTTPS + Schlüsselbund-Token (Fine-grained, `docs/wissen/github-push.md`).
 
 ## Nächste Schritte
-1. Keine bekannt – neue Wünsche als Auftrag anlegen (`/auftrag`).
+1. Fehlende-Anzeige im echten Telegram prüfen (siehe Offen); bei Fehlern als Auftrag anlegen.
+2. Neue Wünsche als Auftrag anlegen (`/auftrag`).
+3. Letzter STATUS-Commit ist lokal, noch nicht gepusht (Push nur auf Julius' Wort).
 
 ## Aktive Aufträge
 - keine
